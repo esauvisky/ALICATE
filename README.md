@@ -1,8 +1,14 @@
-# ALICATE  pliers
+# ALICATE
 
 **A**plicação de **L**ogaritmos **I**nteligentes para **C**ombater o **A**liexpress e suas **T**axas **E**xcessivas.
 
 *Porque dividir o carrinho do Aliexpress é melhor que dividir seu salário com o governo.*
+
+<p align="center">
+  https://github.com/user-attachments/assets/c5e3d389-e885-4a3e-bd9b-ebc5ecf3332e
+  <br>
+  <em>No vídeo: uma compra de $155 (9 produtos) teria $120 de impostos (total $275). Com o ALICATE, os impostos caíram para $78, uma economia de ~40%.</em>
+</p>
 
 ## O Que Isso Faz
 
