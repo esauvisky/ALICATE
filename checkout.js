@@ -410,19 +410,6 @@
 
     // ---------------------------------------
 
-    function addTaxRateInputListener() {
-        document.getElementById('optimalTaxRateInput')?.addEventListener('change', (e) => {
-            const newRate = parseFloat(e.target.value) / 100;
-            if (!isNaN(newRate) && newRate >= 0 && newRate <= 1) {
-                USER_DEFINED_OPTIMAL_TAX_RATE = newRate;
-                runOptimization();
-            } else {
-                alert('Please enter a valid percentage for the Optimal Tax Rate (0–100).');
-                e.target.value = (USER_DEFINED_OPTIMAL_TAX_RATE * 100).toFixed(0);
-            }
-        });
-    }
-
     function buildSummaryHtml(totalEstimatedTax, originalTax, currentOrderTaxRate) {
         const delta = +(originalTax - totalEstimatedTax).toFixed(2); // normalize rounding noise
         const savings = delta;
@@ -435,9 +422,7 @@
         <li>Current Tax: <strong style="color:#c0392b;">US $${originalTax.toFixed(2)}</strong></li>
         <li>Current Tax Rate: <strong style="color:#c0392b;">${(currentOrderTaxRate * 100).toFixed(2)}%</strong></li>
         <li style="padding:8px 0;"><hr style="border:0;border-top:1px solid #eee;"></li>
-        <li>Assumed Tax Rate
-          <input type="number" id="optimalTaxRateInput" value="${(USER_DEFINED_OPTIMAL_TAX_RATE * 100).toFixed(0)}" step="1" style="width:55px;text-align:center;border:1px solid #ccc;border-radius:4px;margin:0 5px;padding:2px 4px;font-weight:bold;">%
-        </li>
+        <li>Assumed Optimal Tax Rate: <strong>${(USER_DEFINED_OPTIMAL_TAX_RATE * 100).toFixed(0)}%</strong></li>
         <li>Est. Tax w/ Splits: <strong style="color:${savingsColor};">US $${totalEstimatedTax.toFixed(2)}</strong></li>
         <li style="font-weight:bold;">${label}: <strong style="color:${savingsColor};font-size:15px;">US $${Math.abs(savings).toFixed(2)}</strong></li>
       </ul>
@@ -534,7 +519,6 @@
         if (ALWAYS_SHOW_SPLITS_IF_AVAILABLE && splitsData.splits.length > 1) {
             container.innerHTML = buildFullSuggestionHtml(splitsData, originalTax, currentOrderTaxRate);
             addGoToCartListener();
-            addTaxRateInputListener();
             return;
         }
 
@@ -549,7 +533,6 @@
             container.innerHTML = buildFullSuggestionHtml(splitsData, originalTax, currentOrderTaxRate);
             addGoToCartListener();
         }
-        addTaxRateInputListener();
     }
 
     // --- Orchestrator ---
