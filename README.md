@@ -40,21 +40,28 @@ Este script contorna essa lógica brilhante dividindo seus pedidos para que voc�
 2. Copie o conteúdo de `checkout.js` e crie um novo userscript
 3. Copie o conteúdo de `cart.js` e crie outro userscript
 4. Ative ambos os scripts
-5. Vá fazer suas compras e deixe a mágica acontecer
+5. **Configure o AliExpress para usar USD (Dólares Americanos)** - o script só funciona com essa moeda
+6. Vá fazer suas compras e deixe a mágica acontecer
 
 ## Como Usar
 
+### Pré-requisitos
+- Certifique-se de que o AliExpress está configurado para **USD**
+- Se estiver em outra moeda, o script mostrará um aviso com instruções
+
+### Passo a Passo
+
 1.  **Planejamento (Checkout)**: Encha seu carrinho com todas as quinquilharias que você deseja. Vá para a página de checkout como se fosse um cidadão comum prestes a pagar uma fortuna em impostos. O script vai analisar a situação e, se houver uma maneira de ser mais esperto que o sistema, ele vai mostrar um plano para dividir seus pedidos. Não se preocupe, ele guarda o plano pra você. Clique no botão para voltar ao carrinho e começar a mágica.
 
-2.  **Execução (Carrinho)**: De volta ao carrinho, uma nova interface divina aparecerá. Ela mostra os "splits" (as divisões) que o script calculou. Basta clicar em "Aplicar Split 1" e ele selecionará os itens e ajustará as quantidades certas para aquele pedido.[^1] O script se lembra do plano original, então mesmo que você já tenha comprado metade das coisas, ele saberá o que falta. Gênio, né? Ah, e a interface está toda em inglês, então esperamos que você tenha ao menos um neurônio funcional para entender o que "Apply Split" significa.
+2.  **Execução (Carrinho)**: De volta ao carrinho, uma nova interface divina aparecerá. Ela mostra os "splits" (as divisões) que o script calculou. Basta clicar em "Aplicar Passe 1" e ele selecionará os itens e ajustará as quantidades certas para aquele pedido.[^1] O script se lembra do plano original, então mesmo que você já tenha comprado metade das coisas, ele saberá o que falta. Gênio, né?
 
 3.  **Finalize e Comemore**: Repita o processo para cada split. Pague seus pedidos um por um e sinta o doce sabor de ter economizado uma grana que iria direto para o bolso do governo. Você mereceu.
 
 [^1]: **Atenção, Recruta (Itens com Quantidade > 1)**: Aqui é onde você precisa usar mais de dois neurônios. Se um item (digamos, 10x borrachinhas de pato) for dividido entre vários pedidos (7 no primeiro, 3 no segundo), você terá que fazer o seguinte:
-    *   Aplique e compre o primeiro split (com as 7 borrachinhas).
-    *   Depois que a compra for feita, o item VAI SUMIR do seu carrinho. É assim que o Aliexpress funciona, não culpe o mensageiro.
-    *   Você terá que **readicionar o mesmo produto ao carrinho** (ao menos uma unidade das borrachinhas restantes) para poder comprar o segundo split.
-    *   Sim, é um pouco de trabalho manual. Eu automatizo o cálculo, não faço milagre. Se ficou confuso, **assista o vídeo de demonstração acima**. O script é decente o suficiente para te dar instruções no processo, então **leia as porras das mensagens**.
+    *   Aplique e compre o primeiro passe (com as 7 borrachinhas).
+    *   Depois que a compra for feita, o item VAI SUMIR do seu carrinho. É assim que o AliExpress funciona, não culpe o mensageiro.
+    *   Você terá que **readicionar o mesmo produto ao carrinho** (ao menos uma unidade das borrachinhas restantes) para poder comprar o segundo passe.
+    *   Sim, é um pouco de trabalho manual. Eu automatizo o cálculo, não faço milagre. Se ficou confuso, **assista o vídeo de demonstração acima**. O script é decente o suficiente para te dar instruções no processo, então **leia as mensagens de aviso**.
 
 ## Detalhes Técnicos (ou "Como a Mágica Acontece")
 
@@ -64,7 +71,7 @@ Você deve estar se perguntando: "por que diabos dividir meu pedido funciona?". 
 
 2.  **A Ganância é a Chave**: O truque do ALICATE é tratar esse limite de $50 como um jogo. O objetivo é criar o maior número possível de pacotes cujo valor chegue o mais perto possível de $49.99, sem nunca ultrapassar. Um pedido de $150 paga um imposto brutal. Três pedidos de $50 pagam três impostos pequenos, e a soma deles é muito menor que o imposto do pedido único.
 
-O script usa seus "logaritmos inteligentes" (leia-se: um algoritmo guloso, mas eficiente) para analisar todos os seus itens e encontrar as combinações ideais para cada "split", maximizando o valor de cada pacote sem cruzar a linha fatal dos $50. É basicamente um Tetris com suas compras para ferrar o sistema. Legalmente, claro.
+O script usa seus "logaritmos inteligentes" para analisar todos os seus itens e encontrar as combinações ideais para cada "split", maximizando o valor de cada pacote sem cruzar a linha fatal dos $50. É basicamente um Tetris com suas compras para ferrar o sistema. Legalmente, claro.
 
 ## Aviso Legal
 
