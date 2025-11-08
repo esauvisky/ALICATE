@@ -318,6 +318,29 @@
         return html;
     }
 
+    function displayCurrencyWarningUI(currency) {
+        const container = ensureContainer();
+        container.innerHTML = `
+            <div style="background: #fff3cd; border: 1px solid #ffeaa7; padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                <h3 style="margin-top: 0; color: #856404;">⚠️ Moeda Não Suportada</h3>
+                <p style="margin: 8px 0; color: #856404; font-size: 14px;">
+                    Este script funciona apenas quando o AliExpress está configurado para <strong>USD (Dólares Americanos)</strong>.
+                </p>
+                <p style="margin: 8px 0; color: #856404; font-size: 14px;">
+                    Moeda atual detectada: <strong>${currency}</strong>
+                </p>
+                <p style="margin: 8px 0; color: #856404; font-size: 14px;">
+                    Para usar este otimizador:
+                </p>
+                <ol style="margin: 8px 0 8px 20px; color: #856404; font-size: 14px;">
+                    <li>Vá para as configurações do AliExpress</li>
+                    <li>Altere a moeda para USD</li>
+                    <li>Recarregue esta página</li>
+                </ol>
+            </div>`;
+        localStorage.removeItem(SPLIT_DATA_KEY);
+    }
+
     function displayNoSplitsPossibleUI() {
         const container = ensureContainer();
         container.innerHTML = `<p style="margin: 0; font-size: 14px; color: #555;">⚠️ Este pedido contém apenas um único item, então nenhuma otimização é possível.</p>`;
@@ -381,6 +404,14 @@
     // --- Orquestrador ---
     function runOptimization() {
         if (!checkoutApiData) return;
+
+        // Check currency first
+        const currencyCheck = checkCurrency();
+        if (!currencyCheck.isUSD) {
+            displayCurrencyWarningUI(currencyCheck.currency);
+            return;
+        }
+
         const groupedBySeller = parseCartItems();
         const totalUnits = Array.from(groupedBySeller.values()).flat().reduce((sum, item) => sum + item.quantity, 0);
 
