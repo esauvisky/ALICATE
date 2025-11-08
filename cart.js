@@ -77,180 +77,87 @@
         return items;
     }
 
-    async function applySplit(splitIndex, allSplits, allButtons, quantityWarnings = []) {
+    async function applyPass(passIndex, allPasses, allButtons) {
         allButtons.forEach(b => { b.disabled = true; b.style.cursor = 'wait'; b.style.opacity = '0.7'; });
-        const clickedButton = allButtons[splitIndex];
+        const clickedButton = allButtons[passIndex];
         const originalText = clickedButton.innerHTML;
 
         try {
-            // Check for quantity warnings for this specific split
-            const splitWarnings = quantityWarnings.filter(warning =>
-                warning.splitDistribution.some(dist => dist.splitIndex === splitIndex)
-            );
+            clickedButton.innerHTML = '🔄 Preparando...';
+            const itemsToProcess = allPasses[passIndex].flatMap(split => split.items).map(item => ({
+                ...item,
+                itemId: (item.itemUrl.match(/item\/(\d+)\.html/) || [])[1]
+            })).filter(item => item.itemId);
 
-            if (splitWarnings.length > 0) {
-                showNotification(
-                    `⚠️ This split requires quantity adjustments. The script will automatically adjust quantities where possible.`,
-                    'success',
-                    5000
-                );
+            const currentlyVisibleItems = parseCartPageItems();
+            const pageItemIds = new Set(currentlyVisibleItems.map(item => item.itemId));
+            const missingItems = itemsToProcess.filter(itemToFind => !pageItemIds.has(itemToFind.itemId));
+
+            if (missingItems.length > 0) {
+                const missingItemsList = missingItems
+                    .map(item => `<li>${item.quantity}x <a href="${item.itemUrl}" target="_blank">${item.displayName}</a></li>`)
+                    .join('');
+                showNotification(`<b>Erro: Itens não encontrados!</b><br>Os seguintes itens do plano não estão no seu carrinho. Por favor, adicione-os e tente novamente:<ul>${missingItemsList}</ul>`, 'error', 20000);
+                return; // Stop execution
             }
-
-            clickedButton.innerHTML = '🔄 Preparing Cart...';
 
             const selectAllCheckbox = document.querySelector(SELECT_ALL_SELECTOR);
-            if (!selectAllCheckbox) throw new Error("Could not find the 'Select All' checkbox.");
+            if (!selectAllCheckbox) throw new Error("Não foi possível encontrar a caixa 'Selecionar Todos'.");
             if (document.querySelector('.cart-product .comet-v2-checkbox-checked')) {
-                 if (!selectAllCheckbox.classList.contains('comet-v2-checkbox-checked')) {
-                    selectAllCheckbox.click();
-                    await waitForLoadingToFinish(1500);
-                 }
-                 selectAllCheckbox.click();
-                 await waitForLoadingToFinish(1500);
+                 if (!selectAllCheckbox.classList.contains('comet-v2-checkbox-checked')) { selectAllCheckbox.click(); await waitForLoadingToFinish(); }
+                 selectAllCheckbox.click(); await waitForLoadingToFinish();
             }
-            console.log("All items deselected.");
 
-            clickedButton.innerHTML = `🔍 Applying Split ${splitIndex + 1}...`;
-            const itemsToSelect = [...allSplits[splitIndex].items].map(item => {
-                const rawName = item.displayName.trim();
-                const normalizedSku = normalizeSku(item.originalSkuText);
-                const uniqueId = normalizedSku ? `${rawName} (${normalizedSku})` : rawName;
-                return { ...item, uniqueId };
-            });
+            clickedButton.innerHTML = `🔍 Aplicando Passe ${passIndex + 1}...`;
 
-            let foundAndSelectedCount = 0;
             let scrollAttempts = 0;
             const MAX_SCROLL_ATTEMPTS = 20;
+            let totalSelectedUnits = 0;
+            let itemsToProcessInLoop = [...itemsToProcess];
 
-            while (itemsToSelect.length > 0 && scrollAttempts < MAX_SCROLL_ATTEMPTS) {
+            while (itemsToProcessInLoop.length > 0 && scrollAttempts < MAX_SCROLL_ATTEMPTS) {
                 let itemsFoundInThisPass = false;
-                const currentlyVisibleItems = parseCartPageItems();
+                const visibleItemsNow = parseCartPageItems();
 
-                for (let i = itemsToSelect.length - 1; i >= 0; i--) {
-                    const itemToFind = itemsToSelect[i];
-                    const foundOnPage = currentlyVisibleItems.find(pItem => pItem.uniqueId === itemToFind.uniqueId);
+                for (let i = itemsToProcessInLoop.length - 1; i >= 0; i--) {
+                    const itemToFind = itemsToProcessInLoop[i];
+                    const foundOnPage = visibleItemsNow.find(pItem => pItem.itemId === itemToFind.itemId);
 
                     if (foundOnPage) {
-                        // Check if quantity adjustment is needed
-                        const splitWarning = quantityWarnings.find(warning =>
-                            warning.displayName === itemToFind.displayName &&
-                            warning.originalSkuText === itemToFind.originalSkuText
-                        );
+                        itemsFoundInThisPass = true;
+                        const currentQuantity = parseInt(foundOnPage.quantityInput.value, 10);
+                        const neededQuantity = itemToFind.quantity;
 
-                        if (splitWarning) {
-                            const splitDist = splitWarning.splitDistribution.find(dist => dist.splitIndex === splitIndex);
-                            if (splitDist) {
-                                const currentQuantity = parseInt(foundOnPage.quantityInput?.value) || 1;
-                                const neededQuantity = splitDist.count;
-
-                                if (currentQuantity !== neededQuantity) {
-                                    console.log(`Adjusting quantity for ${itemToFind.displayName} from ${currentQuantity} to ${neededQuantity}`);
-
-                                    // Find the + and - buttons
-                                    const quantityContainer = foundOnPage.quantityInput?.closest('.comet-v2-input-number');
-                                    const minusButton = quantityContainer?.querySelector('.comet-v2-input-number-btn-decrease');
-                                    const plusButton = quantityContainer?.querySelector('.comet-v2-input-number-btn-increase');
-                                    if (minusButton && plusButton) {
-                                        // Click buttons to adjust quantity
-                                        if (currentQuantity > neededQuantity) {
-                                            // Need to decrease quantity
-                                            for (let i = 0; i < (currentQuantity - neededQuantity); i++) {
-                                                minusButton.click();
-                                                await new Promise(r => setTimeout(r, 150));
-                                            }
-                                        } else if (currentQuantity < neededQuantity) {
-                                            // Need to increase quantity
-                                            for (let i = 0; i < (neededQuantity - currentQuantity); i++) {
-                                                plusButton.click();
-                                                await new Promise(r => setTimeout(r, 150));
-                                            }
-                                        }
-
-                                        try {
-                                            await waitForLoadingToFinish(1000);
-                                        } catch (loadError) {
-                                            console.warn(`Loading timeout after quantity change for ${itemToFind.displayName}, continuing...`);
-                                        }
-                                    } else {
-                                        console.warn(`Could not find +/- buttons for ${itemToFind.displayName}, falling back to direct input`);
-                                        // Fallback to direct input method
-                                        if (foundOnPage.quantityInput) {
-                                            foundOnPage.quantityInput.value = neededQuantity;
-                                            foundOnPage.quantityInput.dispatchEvent(new Event('input', { bubbles: true }));
-                                            foundOnPage.quantityInput.dispatchEvent(new Event('change', { bubbles: true }));
-                                            await new Promise(r => setTimeout(r, 200));
-                                            try {
-                                                await waitForLoadingToFinish(1000);
-                                            } catch (loadError) {
-                                                console.warn(`Loading timeout after quantity change for ${itemToFind.displayName}, continuing...`);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
+                        if (currentQuantity !== neededQuantity) {
+                            console.log(`Adjusting quantity for item ${itemToFind.itemId} from ${currentQuantity} to ${neededQuantity}`);
+                            setReactInputValue(foundOnPage.quantityInput, neededQuantity);
+                            await waitForLoadingToFinish().catch(e => console.warn(`Timeout after quantity adjustment: ${e.message}`));
                         }
 
-                        const checkbox = foundOnPage.checkbox;
-                        if (checkbox && !checkbox.classList.contains('comet-v2-checkbox-checked')) {
-                            checkbox.click();
-                            await new Promise(r => setTimeout(r, 100));
-                            try {
-                                await waitForLoadingToFinish(1000);
-                            } catch (loadError) {
-                                console.warn(`Loading timeout for item ${itemToFind.displayName}, continuing...`);
-                                // Continue processing other items even if one times out
-                            }
+                        if (foundOnPage.checkbox && !foundOnPage.checkbox.classList.contains('comet-v2-checkbox-checked')) {
+                            foundOnPage.checkbox.click();
+                            await waitForLoadingToFinish(1500).catch(e => console.warn(`Timeout after selection: ${e.message}`));
                         }
-                        if (foundOnPage.checkbox.classList.contains('comet-v2-checkbox-checked')) {
-                            itemsToSelect.splice(i, 1);
-                            itemsFoundInThisPass = true;
-                            foundAndSelectedCount++;
-                        }
+
+                        totalSelectedUnits += neededQuantity;
+                        itemsToProcessInLoop.splice(i, 1);
                     }
                 }
 
-                if (itemsToSelect.length > 0) {
+                if (itemsToProcessInLoop.length > 0) {
                     const initialHeight = document.documentElement.scrollHeight;
                     window.scrollTo(0, initialHeight);
-                    try {
-                        await waitForLoadingToFinish(3000);
-                    } catch (scrollError) {
-                        console.warn('Scroll loading timeout, continuing...');
-                    }
-                    const newHeight = document.documentElement.scrollHeight;
-                    if (newHeight === initialHeight && !itemsFoundInThisPass) break;
+                    await new Promise(r => setTimeout(r, 1500));
+                    if (document.documentElement.scrollHeight === initialHeight && !itemsFoundInThisPass) break;
                 }
                 scrollAttempts++;
             }
 
-            if (itemsToSelect.length > 0) {
-                const missingItemsList = itemsToSelect.map(item => `<li>${item.displayName}</li>`).join('');
-                showNotification(`Error: Could not find all items. Missing:<ul>${missingItemsList}</ul>`, 'error', 15000);
-            } else {
-                let successMessage = `✅ Applied Split ${splitIndex + 1}. Selected ${foundAndSelectedCount} item(s).`;
-
-                // Add quantity warning to success message if applicable
-                const splitWarnings = quantityWarnings.filter(warning =>
-                    warning.splitDistribution.some(dist => dist.splitIndex === splitIndex)
-                );
-
-                if (splitWarnings.length > 0) {
-                    successMessage += `<br><br>⚠️ <strong>Quantity Check Required:</strong><br>`;
-                    splitWarnings.forEach(warning => {
-                        const splitDist = warning.splitDistribution.find(dist => dist.splitIndex === splitIndex);
-                        successMessage += `• ${warning.displayName}: Verify quantity is ${splitDist.count}x<br>`;
-                    });
-                    successMessage += `<br>Please verify quantities and checkout.`;
-                } else {
-                    successMessage += ` Please verify and checkout.`;
-                }
-
-                showNotification(successMessage, 'success', 10000);
-            }
+            showNotification(`✅ Passe ${passIndex + 1} aplicado. Foram selecionadas ${totalSelectedUnits} unidades no total. Por favor, verifique e finalize a compra.`, 'success');
 
         } catch (error) {
-            console.error("An error occurred while applying the split:", error);
-            showNotification(`Error: ${error.message}. Check console (F12).`, 'error', 8000);
+            console.error("Error applying pass:", error);
+            showNotification(`Erro: ${error.message}.`, 'error');
         } finally {
             allButtons.forEach(b => { b.disabled = false; b.style.cursor = 'pointer'; b.style.opacity = '1'; });
             clickedButton.innerHTML = originalText;
