@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         AliExpress Cart Split Applier
 // @namespace    http://tampermonkey.net/
-// @version      2025-07-19-cart-v18
+// @version      2025-11-08-cart-rev19
 // @description  Lê os planos de divisão de pedidos, ajusta as quantidades, aplica-os com uma UI integrada e mostra os itens de cada passe.
 // @author       @esauvisky
 // @match        https://www.aliexpress.com/p/shoppingcart/index.html*

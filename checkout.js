@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALICATE - Otimizador de Checkout
 // @namespace    http://tampermonkey.net/
-// @version      2025-11-05-rev35-pt-BR
+// @version      2025-11-08-checkout-rev36
 // @description  Analisa sua página de checkout do AliExpress para sugerir divisões de pedido inteligentes que minimizam impostos, usando as regras do Remessa Conforme.
 // @author       @esauvisky
 // @run-at       document-start
