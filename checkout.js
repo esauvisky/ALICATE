@@ -13,24 +13,24 @@
 (function () {
     'use strict';
 
-    // --- Config ---
+    // --- Configurações ---
     const OPTIMIZATION_CONTAINER_ID = 'custom-optimization-suggestions-container';
     const SPLIT_DATA_KEY = 'aliExpressCartSplits';
-    const OPTIMAL_SUBTOTAL_THRESHOLD = 49.00;
-    let USER_DEFINED_OPTIMAL_TAX_RATE = 0.45;
+    const MINIMUM_SAVINGS_THRESHOLD = 0.05; // Não sugerir divisões para economias menores que 5 centavos.
 
-    // New: control whether to suppress rendering when savings <= 0
-    const ALWAYS_SHOW_SPLITS_IF_AVAILABLE = true;
-    const SAVINGS_HIDE_THRESHOLD = 0.01; // only hide if loss > 1 cent (and ALWAYS_SHOW... is false)
+    // --- Regras do Remessa Conforme (PRC) ---
+    const PRC_LOWER_BRACKET_THRESHOLD = 50.00;
+    const PRC_II_RATE_LOW = 0.20;
+    const PRC_II_RATE_HIGH = 0.60;
+    const PRC_II_DISCOUNT_USD = 20.00;
+    const ICMS_RATE = 0.17;
 
-    // --- Globals ---
+    // --- Globais ---
     let checkoutApiData = null;
 
-
-    // --- Unified Data Processor ---
+    // --- Processador de Dados Unificado ---
     function processCheckoutData(apiResponse) {
-        // Both XHR and fetch interceptors pass the parsed JSON with shape {data:{data:{...}}}
-        const maybeData = apiResponse && apiResponse.data && apiResponse.data.data;
+        const maybeData = apiResponse?.data?.data;
         if (maybeData && typeof maybeData === 'object') {
             checkoutApiData = maybeData;
             console.log('[AE Optimizer] Processed Checkout API Data:', checkoutApiData);
@@ -85,47 +85,46 @@
         return res;
     };
 
-    // --- Helpers ---
+    // --- Motor de Cálculo de Impostos (Remessa Conforme) ---
+    function calculatePrcTax(subtotal) {
+        if (subtotal <= 0) return { totalTax: 0, importTax: 0, icmsTax: 0 };
+        let importTax = (subtotal <= PRC_LOWER_BRACKET_THRESHOLD)
+            ? subtotal * PRC_II_RATE_LOW
+            : Math.max(0, (subtotal * PRC_II_RATE_HIGH) - PRC_II_DISCOUNT_USD);
+        const baseForIcms = subtotal + importTax;
+        const icmsTax = (baseForIcms / (1 - ICMS_RATE)) - baseForIcms;
+        return { totalTax: importTax + icmsTax, importTax, icmsTax };
+    }
+
+    // --- Funções Auxiliares ---
     function parseCurrency(text) {
         if (typeof text !== 'string') return NaN;
-        // Common AE strings: "Free", "Free shipping"
-        if (/^\s*free(?:\s+shipping)?\s*$/i.test(text)) return 0;
-        return parseFloat(text.replace(/[^\d.-]/g, '').replace(/,/g, ''));
+        if (/^\s*free(?:\s+shipping)?\s*$/i.test(text) || /^\s*grátis\s*$/i.test(text)) return 0;
+        return parseFloat(text.replace(/[^\d,.-]/g, '').replace(',', '.'));
     }
-
-    function normalizeSku(sku) {
-        if (!sku) return '';
-        return sku.toLowerCase().replace(/[\s,/-]/g, '');
+    function normalizeSku(sku) { return sku ? sku.toLowerCase().replace(/[\s,/-]/g, '') : ''; }
+    function generateCartFingerprint(groupedBySeller) {
+        const sellerNames = Array.from(groupedBySeller.keys()).sort();
+        const parts = sellerNames.map(name => {
+            const items = groupedBySeller.get(name);
+            const itemStrings = items.map(i => `${i.uniqueId}x${i.quantity}`).sort();
+            return `${name}:${itemStrings.join(',')}`;
+        });
+        return parts.join('|');
     }
-
-    function generateCartFingerprint(cartItems) {
-        if (!cartItems || !cartItems.length) return '';
-        return cartItems.map(i => i.uniqueId).sort().join('|');
-    }
-
     function findInsertBeforeNode() {
-        // Original selector
         let anchor = document.querySelector('.pl-order-toal-container__btn-box');
-        if (anchor && anchor.parentNode) return anchor;
-
-        // Try near "Place order" / "Pay now" buttons
-        const btns = Array.from(document.querySelectorAll('button,[role="button"]'))
-        .filter(b => /place order|pay now/i.test(b.textContent || ''));
+        if (anchor?.parentNode) return anchor;
+        const btns = Array.from(document.querySelectorAll('button,[role="button"]')).filter(b => /place order|pay now/i.test(b.textContent || ''));
         if (btns.length && btns[0].parentNode) return btns[0];
-
-        // Try something around totals box
         const totalBox = document.querySelector('[class*="order_total"],[id*="order_total"],[data-spm*="place_order"]');
-        if (totalBox) return totalBox;
-
-        // Fallback: top of body
-        return document.body.firstElementChild || document.body;
+        return totalBox || document.body.firstElementChild || document.body;
     }
 
-    // --- Tax extraction ---
+    // --- Extração de Impostos da UI ---
     function calculateTaxValues() {
         const summary = checkoutApiData?.checkout_order_summary_TOTAL_SUMMARY?.fields?.summaryLines;
         if (!Array.isArray(summary)) return null;
-
         let taxAmount = 0;
         for (const line of summary) {
             const title = line?.title?.title || '';
