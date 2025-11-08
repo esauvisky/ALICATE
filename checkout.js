@@ -1,8 +1,8 @@
 // ==UserScript==
-// @name         ALICATE - Checkout Optimizer
+// @name         ALICATE - Otimizador de Checkout
 // @namespace    http://tampermonkey.net/
-// @version      2025-11-05-rev23
-// @description  Analyzes your AliExpress checkout page to suggest intelligent order splits that minimize import taxes.
+// @version      2025-11-05-rev35-pt-BR
+// @description  Analisa sua página de checkout do AliExpress para sugerir divisões de pedido inteligentes que minimizam impostos, usando as regras do Remessa Conforme.
 // @author       @esauvisky
 // @run-at       document-start
 // @match        https://www.aliexpress.com/p/trade/confirm.html*
@@ -36,51 +36,34 @@
             console.log('[AE Optimizer] Processed Checkout API Data:', checkoutApiData);
             setTimeout(runOptimization, 250);
         } else {
-            console.warn('[AE Optimizer] Unexpected API structure:', apiResponse);
+            console.warn('[AE Optimizer] Estrutura da API inesperada:', apiResponse);
         }
     }
 
-    // --- Interception ---
-
-    // 1) XHR
+    // --- Interceptação ---
     const originalXHRopen = XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.open = function (_method, _url) {
-        this._url = _url;
-        return originalXHRopen.apply(this, arguments);
-    };
+    XMLHttpRequest.prototype.open = function (_method, _url) { this._url = _url; return originalXHRopen.apply(this, arguments); };
     const originalXHRsend = XMLHttpRequest.prototype.send;
     XMLHttpRequest.prototype.send = function (_body) {
-        if (this._url && (
-            this._url.toLowerCase().includes('mtop.aliexpress.checkout.renderorder') ||
-            this._url.toLowerCase().includes('mtop.aliexpress.checkout.adjustorder')
-        )) {
+        if (this._url && (this._url.toLowerCase().includes('mtop.aliexpress.checkout.renderorder') || this._url.toLowerCase().includes('mtop.aliexpress.checkout.adjustorder'))) {
             this.addEventListener('load', function () {
                 try {
                     console.log(`%c[INTERCEPTED XHR] ${this._url}`, 'background:#007bff;color:#fff;padding:2px 5px;border-radius:3px;');
                     processCheckoutData(JSON.parse(this.responseText));
-                } catch (e) { console.error('[AE Optimizer] XHR parse error:', e); }
+                } catch (e) { console.error('[AE Optimizer] Erro ao parsear XHR:', e); }
             });
         }
         return originalXHRsend.apply(this, arguments);
     };
-
-    // 2) fetch
     const originalFetch = window.fetch;
     window.fetch = async function (...args) {
-        const [url] = args;
         const res = await originalFetch(...args);
-        const urlString = (url instanceof Request) ? url.url : url;
-
-        if (typeof urlString === 'string' && (
-            urlString.toLowerCase().includes('mtop.aliexpress.checkout.renderorder') ||
-            urlString.toLowerCase().includes('mtop.aliexpress.checkout.adjustorder')
-        )) {
+        const urlString = (args[0] instanceof Request) ? args[0].url : args[0];
+        if (typeof urlString === 'string' && (urlString.toLowerCase().includes('mtop.aliexpress.checkout.renderorder') || urlString.toLowerCase().includes('mtop.aliexpress.checkout.adjustorder'))) {
             console.log(`%c[INTERCEPTED FETCH] ${urlString}`, 'background:#28a745;color:#fff;padding:2px 5px;border-radius:3px;');
             try {
-                const clone = res.clone();
-                const data = await clone.json();
-                processCheckoutData(data);
-            } catch (e) { console.error('[AE Optimizer] fetch parse error:', e); }
+                processCheckoutData(await res.clone().json());
+            } catch (e) { console.error('[AE Optimizer] Erro ao parsear fetch:', e); }
         }
         return res;
     };
@@ -260,211 +243,158 @@
             container = document.createElement('div');
             container.id = OPTIMIZATION_CONTAINER_ID;
             container.style.cssText = 'margin:15px 0;padding:20px;border:1px solid #ddd;background:#fdfdfd;border-radius:8px;box-shadow:0 2px 4px rgba(0,0,0,0.05);';
-            const anchor = findInsertBeforeNode();
-            if (anchor?.parentNode) {
-                anchor.parentNode.insertBefore(container, anchor);
-            } else {
-                document.body.appendChild(container);
-            }
+            findInsertBeforeNode().parentNode.insertBefore(container, findInsertBeforeNode());
         }
         return container;
     }
 
     function addStyles() {
-        const styleId = 'custom-split-applier-styles';
-        if (!document.getElementById(styleId)) {
-            const style = document.createElement('style');
-            style.id = styleId;
-            style.textContent = `
-              #${OPTIMIZATION_CONTAINER_ID} .split-box{border:1px dashed #c0c0c0;padding:10px;margin-top:10px;border-radius:4px;background:#fff}
-              #${OPTIMIZATION_CONTAINER_ID} .split-box h4{margin-top:0;margin-bottom:8px;color:#333;font-size:15px}
-              #${OPTIMIZATION_CONTAINER_ID} .split-box p{margin:4px 0;font-size:13px}
-              #${OPTIMIZATION_CONTAINER_ID} .split-item-list{list-style-type:disc;padding-left:20px;margin-top:8px;margin-bottom:0}
-              #${OPTIMIZATION_CONTAINER_ID} .split-item-list li a{font-size:12px;line-height:1.4;color:#555;text-decoration:none}
-              #${OPTIMIZATION_CONTAINER_ID} .split-item-list li a:hover{text-decoration:underline;color:#0056b3}
-              #${OPTIMIZATION_CONTAINER_ID} .split-item-list li b{font-weight:bold;color:#000}
-
-            `;
-          document.head.appendChild(style);
-      }
-  }
-
-    function addGoToCartListener() {
-        const btn = document.getElementById('goToCartBtn');
-        if (!btn) return;
-
-        btn.addEventListener('click', () => {
-            window.open('https://www.aliexpress.com/p/shoppingcart/index.html', '_blank');
-        });
+        if (!document.getElementById('custom-split-applier-styles')) {
+            document.head.insertAdjacentHTML('beforeend', `
+            <style id="custom-split-applier-styles">
+              #${OPTIMIZATION_CONTAINER_ID} h5.seller-subheader{margin-top:12px;margin-bottom:5px;font-size:12px;color:#333;border-top:1px solid #eee;padding-top:10px;font-weight:bold;}
+              #${OPTIMIZATION_CONTAINER_ID} .split-box{border:1px solid #007bff;padding:15px;margin-top:15px;border-radius:8px;background:#f8faff}
+              #${OPTIMIZATION_CONTAINER_ID} .split-box h4{margin-top:0;margin-bottom:8px;color:#0056b3;font-size:16px}
+              #${OPTIMIZATION_CONTAINER_ID} .split-box p{margin:4px 0;font-size:13px; color: #555;}
+              #${OPTIMIZATION_CONTAINER_ID} .split-box p.tax-breakdown{font-size:11px; color: #777; margin-top: -2px;}
+              #${OPTIMIZATION_CONTAINER_ID} .split-item-list{list-style-type:none;padding-left:10px;margin-top:8px;margin-bottom:0}
+            </style>`);
+        }
     }
 
-    // ---------------------------------------
-
-    function buildSummaryHtml(totalEstimatedTax, originalTax, currentOrderTaxRate) {
-        const delta = +(originalTax - totalEstimatedTax).toFixed(2); // normalize rounding noise
-        const savings = delta;
-        const savingsColor = savings > 0.01 ? '#27ae60' : (savings < -0.01 ? '#c0392b' : '#555');
-        const label = savings > 0.01 ? 'Savings' : (savings < -0.01 ? 'Loss' : 'Estimated savings');
-
+    function buildSummaryHtml(totalEstimatedTax, originalTax, strategy) {
+        const savings = originalTax - totalEstimatedTax;
+        const savingsColor = savings > MINIMUM_SAVINGS_THRESHOLD ? '#27ae60' : '#555';
+        const label = savings > MINIMUM_SAVINGS_THRESHOLD ? 'Economia' : 'Economia Est.';
         return `
-      <h2 style="margin-top:0;margin-bottom:15px;font-size:18px;color:#333;border-bottom:1px solid #eee;padding-bottom:10px;">📈 Order Split Suggestions</h2>
+      <h2 style="margin-top:0;margin-bottom:15px;font-size:18px;color:#333;border-bottom:1px solid #eee;padding-bottom:10px;">📈 Sugestões para Dividir Pedido</h2>
       <ul style="list-style:none;padding:0;margin:0 0 20px 0;font-size:14px;line-height:2.0;">
-        <li>Current Tax: <strong style="color:#c0392b;">US $${originalTax.toFixed(2)}</strong></li>
-        <li>Current Tax Rate: <strong style="color:#c0392b;">${(currentOrderTaxRate * 100).toFixed(2)}%</strong></li>
+        <li>Imposto Atual (Pedido Único): <strong style="color:#c0392b;">US $${originalTax.toFixed(2)}</strong></li>
         <li style="padding:8px 0;"><hr style="border:0;border-top:1px solid #eee;"></li>
-        <li>Assumed Optimal Tax Rate: <strong>${(USER_DEFINED_OPTIMAL_TAX_RATE * 100).toFixed(0)}%</strong></li>
-        <li>Est. Tax w/ Splits: <strong style="color:${savingsColor};">US $${totalEstimatedTax.toFixed(2)}</strong></li>
-        <li style="font-weight:bold;">${label}: <strong style="color:${savingsColor};font-size:15px;">US $${Math.abs(savings).toFixed(2)}</strong></li>
-      </ul>
-    `;
-  }
+        <li style="font-size:12px; color:#666;">Usando estratégia de <b>${strategy}</b> com base nas regras do Remessa Conforme.</li>
+        <li>Imposto Est. com Divisões: <strong style="color:${savingsColor};">US $${totalEstimatedTax.toFixed(2)}</strong></li>
+        <li style="font-weight:bold;">${label}: <strong style="color:${savingsColor};font-size:15px;">US $${savings.toFixed(2)}</strong></li>
+      </ul>`;
+    }
 
-    function buildFullSuggestionHtml(splitsData, originalTax, currentOrderTaxRate) {
-        const { splits } = splitsData;
-        let html = buildSummaryHtml(splitsData.totalEstimatedTax, originalTax, currentOrderTaxRate);
-        html += `
-      <div style="margin-top:15px;margin-bottom:25px;text-align:center;">
-        <button id="goToCartBtn" style="padding:10px 20px;background:#f0ad4e;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:14px;font-weight:bold;">🛒 Go to Cart to Apply Splits</button>
-      </div>
-      <h3>Suggested Orders:</h3>
-    `;
-      splits.forEach((split, idx) => {
-          html += `<div class="split-box"><h4>Order ${idx + 1}</h4><p>Subtotal: <strong>US $${split.subtotal.toFixed(2)}</strong></p><p>Estimated Tax: US $${split.estimatedTax.toFixed(2)}</p><ul class="split-item-list">`;
-          const counts = {};
-          split.items.forEach(it => {
-              // Use simplified key without the unique index we added for the splitting logic
-              const k = `${it.displayName} (${it.originalSkuText})`;
-              if (!counts[k]) counts[k] = { ...it, count: 0 };
-              counts[k].count++;
-          });
-          for (const k in counts) {
-              const it = counts[k];
-              html += `<li><a href="${it.itemUrl}" target="_blank" title="${it.displayName}">${it.count} × ${it.displayName}${it.originalSkuText ? ` (<b>${it.originalSkuText}</b>)` : ''}</a></li>`;
-          }
-          html += `</ul></div>`;
-      });
-      return html;
-  }
+    function buildFullSuggestionHtml(checkoutPasses, totalEstimatedTax, originalTax, strategy) {
+        let html = buildSummaryHtml(totalEstimatedTax, originalTax, strategy);
+        html += `<div style="margin-top:15px;margin-bottom:25px;text-align:center;"><button id="goToCartBtn" style="padding:10px 20px;background:#f0ad4e;color:#fff;border:none;border-radius:4px;cursor:pointer;font-size:14px;font-weight:bold;">🛒 Ir para o Carrinho para Aplicar</button></div>`;
 
-    /**
-     * Displays a compact message when order splitting is not beneficial.
-     */
-    function displayNoSplitsPossibleUI(currentOrderTaxRate) {
+        html += `<h3>Passos de Compra Sugeridos:</h3>`;
+        checkoutPasses.forEach((splitsInPass, index) => {
+            const passSubtotal = splitsInPass.reduce((sum, s) => sum + s.subtotal, 0);
+            const passTax = splitsInPass.reduce((sum, s) => sum + s.estimatedTax, 0);
+
+            html += `<div class="split-box"><h4>Passo de Compra ${index + 1}</h4>
+                     <p>Subtotal do Passo: <strong>US $${passSubtotal.toFixed(2)}</strong></p>
+                     <p>Imposto Est. do Passo: <strong>US $${passTax.toFixed(2)}</strong></p>`;
+
+            splitsInPass.forEach(split => {
+                html += `<h5 class="seller-subheader">Do vendedor: ${split.sellerName}</h5>
+                         <p class="tax-breakdown" style="margin-left:10px;">Imposto do sub-pedido: US $${split.estimatedTax.toFixed(2)} (I.I: $${split.taxDetails.importTax.toFixed(2)}, ICMS: $${split.taxDetails.icmsTax.toFixed(2)})</p>
+                         <ul class="split-item-list">`;
+                split.items.forEach(it => {
+                    html += `<li>${it.quantity} × <a href="${it.itemUrl}" target="_blank" title="${it.displayName}">${it.displayName}</a></li>`;
+                });
+                html += `</ul>`;
+            });
+            html += `</div>`;
+        });
+        return html;
+    }
+
+    function displayNoSplitsPossibleUI() {
         const container = ensureContainer();
-        container.style.cssText = `margin-top: 15px; margin-bottom: 15px; padding: 15px; border: 1px solid #ddd; background-color: #f8f8f8; border-radius: 8px; text-align: center;`;
-        const taxRatePercent = (currentOrderTaxRate * 100).toFixed(2);
-        container.innerHTML = `<p style="margin: 0; font-size: 14px; color: #555;">⚠️ This order cannot be optimized by splitting.<br>Current Order Effective Tax Rate: <strong style="color: #c0392b; font-weight: bold;">${taxRatePercent}%</strong></p>`;
+        container.innerHTML = `<p style="margin: 0; font-size: 14px; color: #555;">⚠️ Este pedido contém apenas um único item, então nenhuma otimização é possível.</p>`;
         localStorage.removeItem(SPLIT_DATA_KEY);
     }
 
-    /**
-     * Displays a warning that the user is checking out a sub-order.
-     */
+    function displayNoSignificantSavingsUI(originalTax, estimatedSplitTax) {
+        const container = ensureContainer();
+        container.innerHTML = `
+            <p style="margin: 0; font-size: 14px; color: #555;">
+                💡 Este pedido já está bem otimizado.
+                <br><br>
+                Dividir este pedido resultaria em uma economia insignificante de <strong>US $${(originalTax - estimatedSplitTax).toFixed(2)}</strong>.
+                <br><br>
+                Imposto Atual: <strong style="color: #c0392b;">US $${originalTax.toFixed(2)}</strong>
+            </p>`;
+        localStorage.removeItem(SPLIT_DATA_KEY);
+    }
+
     function displaySubOrderWarningUI() {
         const container = ensureContainer();
-        container.style.cssText = `margin: 15px 0; padding: 15px; border: 1px solid #aed6f1; background-color: #eaf2f8; border-radius: 8px; text-align: center;`;
-        container.innerHTML = `
-            <p style="margin: 0 0 10px 0; font-size: 14px; color: #154360;">
-                📝 It looks like you're checking out a partial order based on a previous plan.
-            </p>
-            <button id="resetAndRecalculateBtn" style="background-color: #3498db; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-weight: bold;">
-                Recalculate for This Order
-            </button>`;
-
+        container.innerHTML = `<p style="margin: 0 0 10px 0; font-size: 14px; color: #154360;">📝 Parece que você está finalizando um pedido parcial de um plano anterior.</p><button id="resetAndRecalculateBtn" style="background-color: #3498db; color: white; border: none; padding: 8px 12px; border-radius: 4px; cursor: pointer; font-weight: bold;">Recalcular para este Pedido</button>`;
         document.getElementById('resetAndRecalculateBtn')?.addEventListener('click', () => {
-            console.log("Resetting master plan and recalculating for the current sub-order.");
             localStorage.removeItem(SPLIT_DATA_KEY);
             runOptimization();
         });
     }
 
-    function displayOptimizationSuggestions(splitsData, originalTax, currentOrderTaxRate, cartFingerprint) {
+    function displayOptimizationSuggestions(splitsData, originalTax, cartFingerprint) {
         addStyles();
         const container = ensureContainer();
 
-        const totalEstimatedTax = +splitsData.totalEstimatedTax.toFixed(2);
-        const delta = +(originalTax - totalEstimatedTax).toFixed(2);
-        const isLossBeyondThreshold = delta < -SAVINGS_HIDE_THRESHOLD;
+        const ordersBySeller = splitsData.splits.reduce((acc, split) => {
+            if (!acc[split.sellerName]) acc[split.sellerName] = [];
+            acc[split.sellerName].push(split);
+            return acc;
+        }, {});
 
-        // Store payload: Includes the detailed item list required for the hover popup
+        const checkoutPasses = [];
+        const maxPasses = Math.max(0, ...Object.values(ordersBySeller).map(s => s.length));
+        for (let i = 0; i < maxPasses; i++) {
+            const currentPass = [];
+            Object.values(ordersBySeller).forEach(sellerSplits => {
+                if (sellerSplits[i]) {
+                    currentPass.push(sellerSplits[i]);
+                }
+            });
+            checkoutPasses.push(currentPass);
+        }
+
         const payload = {
-            splits: splitsData.splits.map(s => ({
-                subtotal: s.subtotal,
-                estimatedTax: s.estimatedTax,
-                // Only store necessary fields for the popup to keep payload small
-                items: s.items.map(i => ({
-                    displayName: i.displayName,
-                    originalSkuText: i.originalSkuText,
-                    itemUrl: i.itemUrl
-                }))
-            })),
-            originalTax,
-            originalCartFingerprint: cartFingerprint,
-            totalEstimatedTax: splitsData.totalEstimatedTax,
-            quantityWarnings: splitsData.quantityWarnings || []
+            checkoutPasses, originalTax, originalCartFingerprint: cartFingerprint,
+            totalEstimatedTax: splitsData.totalEstimatedTax, strategy: splitsData.strategy,
         };
         localStorage.setItem(SPLIT_DATA_KEY, JSON.stringify(payload));
 
-        // New behavior: if we have more than one split, always show the plan.
-        if (ALWAYS_SHOW_SPLITS_IF_AVAILABLE && splitsData.splits.length > 1) {
-            container.innerHTML = buildFullSuggestionHtml(splitsData, originalTax, currentOrderTaxRate);
-            addGoToCartListener();
-            return;
-        }
-
-        // Old behavior (kept as fallback if you flip the flag off)
-        if (delta <= SAVINGS_HIDE_THRESHOLD && !isLossBeyondThreshold) {
-            container.innerHTML = buildSummaryHtml(totalEstimatedTax, originalTax, currentOrderTaxRate) +
-                `<p style="color:#555;text-align:center;margin-top:12px;">Splitting likely won’t change taxes much for this cart.</p>`;
-        } else if (isLossBeyondThreshold) {
-            container.innerHTML = buildSummaryHtml(totalEstimatedTax, originalTax, currentOrderTaxRate) +
-                `<p style="color:#c0392b;text-align:center;margin-top:12px;font-weight:bold;">Splitting appears worse by US $${Math.abs(delta).toFixed(2)}.</p>`;
-        } else {
-            container.innerHTML = buildFullSuggestionHtml(splitsData, originalTax, currentOrderTaxRate);
-            addGoToCartListener();
-        }
+        container.innerHTML = buildFullSuggestionHtml(checkoutPasses, splitsData.totalEstimatedTax, originalTax, splitsData.strategy);
+        document.getElementById('goToCartBtn')?.addEventListener('click', () => window.open('https://www.aliexpress.com/p/shoppingcart/index.html', '_blank'));
     }
 
-    // --- Orchestrator ---
+    // --- Orquestrador ---
     function runOptimization() {
-        const anchor = findInsertBeforeNode();
-        if (!checkoutApiData || !anchor) {
-            console.warn("[AE Optimizer] Did not find checkoutApiData or a UI anchor point. Aborting.");
-            return;
-        }
-        const currentCartItems = parseCartItems();
-        if (currentCartItems.length === 0) {
-            console.error("[AE Optimizer] Did not find any items in cart after parsing. Aborting.");
-            return;
-        }
+        if (!checkoutApiData) return;
+        const groupedBySeller = parseCartItems();
+        const totalUnits = Array.from(groupedBySeller.values()).flat().reduce((sum, item) => sum + item.quantity, 0);
 
-        const fingerprint = generateCartFingerprint(currentCartItems);
-        const savedDataJSON = localStorage.getItem(SPLIT_DATA_KEY);
-        if (savedDataJSON) {
-            try {
-                const saved = JSON.parse(savedDataJSON);
-                if (saved?.originalCartFingerprint && saved.originalCartFingerprint !== fingerprint) {
-                    displaySubOrderWarningUI();
-                    return;
-                }
-            } catch {}
+        if (totalUnits === 0) { console.error("[AE Optimizer] Nenhum item encontrado no carrinho após o parsing."); return; }
+
+        const fingerprint = generateCartFingerprint(groupedBySeller);
+        const savedData = JSON.parse(localStorage.getItem(SPLIT_DATA_KEY) || '{}');
+        if (savedData.originalCartFingerprint && savedData.originalCartFingerprint !== fingerprint) {
+            displaySubOrderWarningUI();
+            return;
         }
 
         const summary = calculateTaxValues();
-        if (!summary) {
-             console.error("[AE Optimizer] Could not calculate tax values. Aborting.");
-             return;
+        if (!summary) { console.error("[AE Optimizer] Não foi possível calcular os valores dos impostos."); return; }
+        const { taxAmount } = summary;
+
+        if (totalUnits <= 1) {
+            displayNoSplitsPossibleUI();
+            return;
         }
-        const { taxAmount, taxRate } = summary;
-        if (isNaN(taxAmount)) return;
 
-        const splitsData = suggestSplits([...currentCartItems], OPTIMAL_SUBTOTAL_THRESHOLD, USER_DEFINED_OPTIMAL_TAX_RATE, taxRate);
+        const splitsData = suggestSplits(groupedBySeller);
+        const savings = taxAmount - splitsData.totalEstimatedTax;
 
-        if (splitsData.splits.length <= 1) {
-            displayNoSplitsPossibleUI(taxRate);
+        if (savings < MINIMUM_SAVINGS_THRESHOLD) {
+            displayNoSignificantSavingsUI(taxAmount, splitsData.totalEstimatedTax);
         } else {
-            displayOptimizationSuggestions(splitsData, taxAmount, taxRate, fingerprint);
+            displayOptimizationSuggestions(splitsData, taxAmount, fingerprint);
         }
     }
-
 })();
