@@ -51,13 +51,12 @@
         });
     }
 
-    function showNotification(message, type = 'success', duration = 12000) {
+    function showNotification(message, type = 'success') {
         const notificationArea = document.querySelector(`#${UI_CONTAINER_ID} .split-tool-notification`);
         if (!notificationArea) return;
         notificationArea.innerHTML = message;
         notificationArea.className = `split-tool-notification ${type}`;
         notificationArea.style.display = 'block';
-        setTimeout(() => { notificationArea.style.display = 'none'; }, duration);
     }
 
     function parseCartPageItems() {
@@ -97,7 +96,7 @@
                 const missingItemsList = missingItems
                     .map(item => `<li>${item.quantity}x <a href="${item.itemUrl}" target="_blank">${item.displayName}</a></li>`)
                     .join('');
-                showNotification(`<b>Erro: Itens não encontrados!</b><br>Os seguintes itens do plano não estão no seu carrinho. Por favor, adicione-os e tente novamente:<ul>${missingItemsList}</ul>`, 'error', 20000);
+                showNotification(`<b>Erro: Itens não encontrados!</b><br>Os seguintes itens do plano não estão no seu carrinho. Por favor, adicione-os e tente novamente:<ul>${missingItemsList}</ul>`, 'error');
                 return; // Stop execution
             }
 
