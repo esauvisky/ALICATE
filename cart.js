@@ -198,7 +198,7 @@
             html += `<div class="split-button-wrapper">
                         <button class="split-button" data-pass-index="${index}">
                             Aplicar Passe ${index + 1}
-                            <span class="split-details">${totalUnitsInPass} unidade(s) - US $${passSubtotal.toFixed(2)}</span>
+                            <span class="split-details">${totalUnitsInPass} un. - <b>US $${passSubtotal.toFixed(2)}</b></span>
                         </button>
                         ${popupHtml}
                      </div>`;
