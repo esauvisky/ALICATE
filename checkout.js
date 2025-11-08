@@ -120,6 +120,20 @@
         return { taxAmount };
     }
 
+    // --- Currency Check ---
+    function checkCurrency() {
+        if (!checkoutApiData) return { isUSD: false, currency: 'unknown' };
+
+        // Look for any product with currency information
+        for (const [key, block] of Object.entries(checkoutApiData)) {
+            if (block?.type === 'pc_checkout_product' && block.fields?.prices?.children?.retailPrice?.currency) {
+                const currency = block.fields.prices.children.retailPrice.currency;
+                return { isUSD: currency === 'USD', currency };
+            }
+        }
+        return { isUSD: false, currency: 'unknown' };
+    }
+
     // --- Parsing de Itens (Consciente dos Vendedores) ---
     function parseCartItems() {
         const groupedBySeller = new Map();
