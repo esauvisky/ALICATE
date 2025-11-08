@@ -129,240 +129,131 @@
         for (const line of summary) {
             const title = line?.title?.title || '';
             const valStr = line?.content?.content;
-            if (!valStr) continue;
-            if (/^(duty)$/i.test(title) || /^(icms)$/i.test(title) || /\b(vat|iva|tax|duty|icms)\b/i.test(title)) {
+            if (valStr && (/^(duty|icms|imposto)$/i.test(title) || /\b(vat|iva|tax|duty|icms)\b/i.test(title))) {
                 const part = parseCurrency(valStr);
                 if (!isNaN(part)) taxAmount += part;
             }
         }
-
-        const totalLine = checkoutApiData?.checkout_order_total_116150?.fields?.priceList?.[0]?.content?.content;
-        const totalAmount = totalLine ? parseCurrency(totalLine) : NaN;
-        if (isNaN(totalAmount)) return null;
-
-        const base = totalAmount - taxAmount;
-        const taxRate = (base > 0 && taxAmount > 0) ? (taxAmount / base) : 0;
-        return { taxAmount, taxRate };
+        return { taxAmount };
     }
 
-    // --- Robust Item Parsing (Handles multiple API response structures) ---
+    // --- Parsing de Itens (Consciente dos Vendedores) ---
     function parseCartItems() {
-        const items = [];
-        if (!checkoutApiData) return items;
+        const groupedBySeller = new Map();
+        if (!checkoutApiData) return groupedBySeller;
 
-        // --- STRATEGY 1: Detect individual products (newer API structure, as in the example) ---
-        const productKeys = Object.keys(checkoutApiData).filter(k => {
-            const block = checkoutApiData[k];
-            // Check for the specific type and that it has price information.
-            return block && block.type === 'pc_checkout_product' && block.fields?.prices?.children?.retailPrice;
-        });
-
-        if (productKeys.length > 0) {
-            console.log('[AE Optimizer] Detected individual product structure. Using new parser.');
-            for (const pKey of productKeys) {
-                const p = checkoutApiData[pKey]?.fields;
-                if (!p) continue;
-
-                const unitPrice = p.prices?.children?.retailPrice?.value;
-                const quantity = p.quantity?.current;
-                if (isNaN(unitPrice) || isNaN(quantity) || quantity <= 0) continue;
-
-                // Each product has a signature that links it to its shipping info.
-                const signature = p.signature;
-                if (!signature) {
-                     console.warn(`[AE Optimizer] Product block ${pKey} is missing a signature. Cannot link shipping.`);
-                     continue;
-                }
-                const shippingKey = `pc_checkout_shipping_option_${signature}`;
-                const shippingBlock = checkoutApiData[shippingKey];
-
-                let shippingCost = 0;
-                if (shippingBlock) {
-                    const sel = shippingBlock.fields?.selectedFreightService;
-                    const freight = sel?.freightCost || sel?.shippingCostContent || 'Free';
-                    const parsed = parseCurrency(String(freight));
-                    shippingCost = isNaN(parsed) ? 0 : parsed;
-                } else {
-                    console.warn(`[AE Optimizer] No shipping block found for product with signature: ${signature}. Assuming free shipping for this item.`);
-                }
-
-                const displayName = p.title || 'Item';
-                const skuText = p.sku?.skuInfo || '';
-                const itemUrl = p.itemUrl || '';
-                // The shipping cost is for the total quantity of this specific item.
-                const shippingPerUnit = quantity > 0 ? (shippingCost / quantity) : 0;
-
-                const base = {
-                    unitPrice,
-                    quantity,
-                    displayName,
-                    originalSkuText: skuText,
-                    itemUrl,
-                    proportionalShippingPerUnit: shippingPerUnit,
-                    effectivePriceForTax: unitPrice + shippingPerUnit,
-                    uniqueId: normalizeSku(skuText) ? `${displayName} (${normalizeSku(skuText)})` : displayName
-                };
-
-                for (let i = 0; i < quantity; i++) {
-                    // Storing individual, non-cloned item data for splitting logic
-                    items.push({
-                        unitPrice: base.unitPrice,
-                        displayName: base.displayName,
-                        originalSkuText: base.originalSkuText,
-                        itemUrl: base.itemUrl,
-                        effectivePriceForTax: base.effectivePriceForTax,
-                        uniqueId: `${base.uniqueId}_${i}` // Unique ID for split tracking
-                    });
-                }
-            }
-            return items;
-        }
-
-        // --- STRATEGY 2: Detect grouped products by seller (legacy parser, logic unchanged) ---
-        const groupKeys = Object.keys(checkoutApiData).filter(k => {
-            const block = checkoutApiData[k];
-            return block && /pc_checkout_group_product_/i.test(k) && block.fields?.intentionOrderList;
-        });
-
-        if (groupKeys.length > 0) {
-            console.log('[AE Optimizer] Detected grouped product structure. Using legacy parser.');
-            const shippingGroups = {};
-            Object.keys(checkoutApiData).forEach(k => {
-                if (/pc_checkout_group_shipping_/i.test(k)) shippingGroups[k] = checkoutApiData[k];
+        const signatureToSeller = new Map();
+        Object.values(checkoutApiData)
+            .filter(block => block?.type === 'checkout_shop_title' && block.fields?.signatures)
+            .forEach(block => {
+                const sellerName = block.fields.title || 'Vendedor Desconhecido';
+                block.fields.signatures.forEach(sig => signatureToSeller.set(sig, sellerName));
             });
 
-            for (const gk of groupKeys) {
-                const group = checkoutApiData[gk];
-                const intList = group.fields.intentionOrderList || [];
+        const processItem = (p, sellerName, shippingCost = 0) => {
+            const unitPrice = p?.prices?.children?.retailPrice?.value;
+            const quantity = p?.quantity?.current;
+            if (isNaN(unitPrice) || isNaN(quantity) || quantity <= 0) return;
 
-                const modeSuffix = gk.replace(/^pc_checkout_group_product_/, '');
-                const shipKey = Object.keys(shippingGroups).find(sk => sk.endsWith(modeSuffix)) || null;
+            const shippingPerUnit = quantity > 0 ? (shippingCost / quantity) : 0;
+            const effectiveUnitPrice = unitPrice + shippingPerUnit;
+            const displayName = p?.title || 'Item';
+            const skuText = p?.sku?.skuInfo || '';
+            const uniqueId = normalizeSku(skuText) ? `${displayName} (${normalizeSku(skuText)})` : displayName;
 
-                let shippingCost = 0;
-                if (shipKey) {
-                    const sel = shippingGroups[shipKey]?.fields?.selectedFreightService;
-                    const freight = sel?.freightCost || sel?.shippingCostContent || 'Free';
-                    const parsed = parseCurrency(String(freight));
-                    shippingCost = isNaN(parsed) ? 0 : parsed;
-                }
+            if (!groupedBySeller.has(sellerName)) groupedBySeller.set(sellerName, new Map());
+            const sellerItems = groupedBySeller.get(sellerName);
 
-                for (const p of intList) {
-                    const unitPrice = p?.prices?.children?.retailPrice?.value;
-                    const quantity = p?.quantity?.current;
-                    if (isNaN(unitPrice) || isNaN(quantity) || quantity <= 0) continue;
-
-                    const displayName = p?.title || 'Item';
-                    const skuText = p?.sku?.skuInfo || '';
-                    const itemUrl = p?.itemUrl || '';
-                    const shippingPerUnit = quantity > 0 ? (shippingCost / quantity) : 0;
-
-                    const base = {
-                        unitPrice,
-                        quantity,
-                        displayName,
-                        originalSkuText: skuText,
-                        itemUrl,
-                        proportionalShippingPerUnit: shippingPerUnit,
-                        effectivePriceForTax: unitPrice + shippingPerUnit,
-                        uniqueId: normalizeSku(skuText) ? `${displayName} (${normalizeSku(skuText)})` : displayName
-                    };
-
-                    for (let i = 0; i < quantity; i++) {
-                        items.push({
-                            unitPrice: base.unitPrice,
-                            displayName: base.displayName,
-                            originalSkuText: base.originalSkuText,
-                            itemUrl: base.itemUrl,
-                            effectivePriceForTax: base.effectivePriceForTax,
-                            uniqueId: `${base.uniqueId}_${i}`
-                        });
-                    }
-                }
-            }
-            return items;
-        }
-
-        // If neither strategy found items
-        console.warn('[AE Optimizer] Could not find any known product structure in checkout data. Items will be empty.');
-        return items;
-    }
-
-    // --- Split heuristic ---
-    function suggestSplits(cartItems, threshold, optimalTaxRate, currentOrderTaxRate) {
-        if (!cartItems || cartItems.length === 0) return { splits: [], totalEstimatedTax: 0, quantityWarnings: [] };
-        const allItems = [...cartItems].sort((a, b) => b.effectivePriceForTax - a.effectivePriceForTax);
-        const splits = [];
-        let totalEstimatedTax = 0;
-        const quantityWarnings = [];
-
-        while (allItems.length > 0) {
-            let currentSplit = { items: [], subtotal: 0, estimatedTax: 0 };
-            for (let i = allItems.length - 1; i >= 0; i--) {
-                const item = allItems[i];
-                if (currentSplit.subtotal + item.effectivePriceForTax <= threshold) {
-                    currentSplit.items.push(item);
-                    currentSplit.subtotal += item.effectivePriceForTax;
-                    allItems.splice(i, 1);
-                }
-            }
-            if (currentSplit.items.length === 0 && allItems.length > 0) {
-                const largestItem = allItems.shift();
-                currentSplit.items.push(largestItem);
-                currentSplit.subtotal = largestItem.effectivePriceForTax;
-            }
-            if (currentSplit.items.length > 0) {
-                currentSplit.estimatedTax = currentSplit.subtotal *
-                    (currentSplit.subtotal <= threshold ? optimalTaxRate : currentOrderTaxRate);
-                totalEstimatedTax += currentSplit.estimatedTax;
-                splits.push(currentSplit);
-            }
-        }
-
-        // Analyze splits for quantity warnings
-        const itemQuantityMap = new Map();
-
-        // Count total quantities needed per unique item across all splits
-        splits.forEach((split, splitIndex) => {
-            split.items.forEach(item => {
-                const baseKey = item.uniqueId.replace(/_\d+$/, ''); // Remove the _index suffix
-                if (!itemQuantityMap.has(baseKey)) {
-                    itemQuantityMap.set(baseKey, {
-                        displayName: item.displayName,
-                        originalSkuText: item.originalSkuText,
-                        totalNeeded: 0,
-                        splitDistribution: []
-                    });
-                }
-                const itemData = itemQuantityMap.get(baseKey);
-                itemData.totalNeeded++;
-
-                // Track which split this item appears in
-                let splitEntry = itemData.splitDistribution.find(s => s.splitIndex === splitIndex);
-                if (!splitEntry) {
-                    splitEntry = { splitIndex, count: 0 };
-                    itemData.splitDistribution.push(splitEntry);
-                }
-                splitEntry.count++;
-            });
-        });
-
-        // Check for items that appear in multiple splits (quantity splits needed)
-        itemQuantityMap.forEach((itemData, baseKey) => {
-            if (itemData.splitDistribution.length > 1) {
-                quantityWarnings.push({
-                    displayName: itemData.displayName,
-                    originalSkuText: itemData.originalSkuText,
-                    totalQuantity: itemData.totalNeeded,
-                    splitDistribution: itemData.splitDistribution
+            if (!sellerItems.has(uniqueId)) {
+                sellerItems.set(uniqueId, {
+                    displayName, originalSkuText: skuText, itemUrl: p?.itemUrl || '',
+                    unitPrice: effectiveUnitPrice, quantity: 0, uniqueId
                 });
             }
-        });
+            sellerItems.get(uniqueId).quantity += quantity;
+        };
 
-        return { splits, totalEstimatedTax, quantityWarnings };
+        Object.values(checkoutApiData)
+            .filter(block => block?.type === 'pc_checkout_product' || (block?.type === 'pc_checkout_group_product' && block.fields?.intentionOrderList))
+            .forEach(block => {
+                if (block.type === 'pc_checkout_product') {
+                    const p = block.fields;
+                    const sellerName = signatureToSeller.get(p.signature) || 'Itens não atribuídos';
+                    const shippingBlock = checkoutApiData[`pc_checkout_shipping_option_${p.signature}`];
+                    let shippingCost = shippingBlock ? parseCurrency(String(shippingBlock.fields?.selectedFreightService?.freightCost || 'Free')) : 0;
+                    processItem(p, sellerName, isNaN(shippingCost) ? 0 : shippingCost);
+                } else { // Produtos agrupados
+                    const groupIdentifier = block.id.replace(/^pc_checkout_group_product_/, '');
+                    const shipKey = Object.keys(checkoutApiData).find(k => k.endsWith(groupIdentifier));
+                    let shippingCost = shipKey ? parseCurrency(String(checkoutApiData[shipKey]?.fields?.selectedFreightService?.freightCost || 'Free')) : 0;
+                    block.fields.intentionOrderList.forEach(p => {
+                        const sellerName = signatureToSeller.get(p.signature) || 'Itens não atribuídos';
+                        processItem(p, sellerName, isNaN(shippingCost) ? 0 : shippingCost);
+                    });
+                }
+            });
+
+        for (const [sellerName, itemsMap] of groupedBySeller.entries()) {
+            groupedBySeller.set(sellerName, Array.from(itemsMap.values()));
+        }
+        return groupedBySeller;
     }
 
-    // --- UI helpers ---
 
+    // --- Motor Heurístico de Divisão (por Vendedor) ---
+    function suggestSplits(groupedBySeller) {
+        const finalSplits = [];
+        let totalEstimatedTax = 0;
+
+        for (const [sellerName, items] of groupedBySeller.entries()) {
+            const itemsToPack = JSON.parse(JSON.stringify(items)).sort((a, b) => a.unitPrice - b.unitPrice);
+            const totalUnits = itemsToPack.reduce((sum, item) => sum + item.quantity, 0);
+            let unitsPacked = 0;
+
+            while (unitsPacked < totalUnits) {
+                let currentSplit = { items: [], subtotal: 0, sellerName };
+                for (const item of itemsToPack) {
+                    if (item.quantity > 0 && item.unitPrice > 0) {
+                        const canFit = Math.floor((PRC_LOWER_BRACKET_THRESHOLD - currentSplit.subtotal) / item.unitPrice);
+                        const qtyToAdd = Math.min(item.quantity, canFit);
+                        if (qtyToAdd > 0) {
+                            currentSplit.items.push({ ...item, quantity: qtyToAdd });
+                            currentSplit.subtotal += qtyToAdd * item.unitPrice;
+                            item.quantity -= qtyToAdd;
+                            unitsPacked += qtyToAdd;
+                        }
+                    }
+                }
+
+                if (currentSplit.items.length === 0) {
+                    // This block handles cases where the greedy packer gets stuck, which happens
+                    // if the cheapest remaining item costs more than $50. The strategy is to
+                    // create a new split with just ONE unit of that "oversized" item.
+                    const firstUnpacked = itemsToPack.find(i => i.quantity > 0);
+                    if (firstUnpacked) {
+                         const qtyToAdd = 1; // FIX: Take only one unit of the oversized item.
+                         currentSplit.items.push({ ...firstUnpacked, quantity: qtyToAdd });
+                         currentSplit.subtotal += qtyToAdd * firstUnpacked.unitPrice;
+                         firstUnpacked.quantity -= qtyToAdd; // FIX: Decrement quantity instead of setting to 0.
+                         unitsPacked += qtyToAdd;
+                    } else {
+                        break; // No more items left to pack.
+                    }
+                }
+
+                const taxDetails = calculatePrcTax(currentSplit.subtotal);
+                currentSplit.taxDetails = taxDetails;
+                currentSplit.estimatedTax = taxDetails.totalTax;
+                totalEstimatedTax += taxDetails.totalTax;
+                finalSplits.push(currentSplit);
+            }
+        }
+
+        return { splits: finalSplits, totalEstimatedTax, strategy: "Empacotamento por Vendedor" };
+    }
+
+
+    // --- Funções da Interface do Usuário ---
     function ensureContainer() {
         let container = document.getElementById(OPTIMIZATION_CONTAINER_ID);
         if (!container) {
