@@ -12,83 +12,67 @@
 (function() {
     'use strict';
 
-    // --- Configuration ---
-    const LOADER_SELECTOR = '.comet-v2-loading-wrap';
-    const LOADER_SELECTOR_2 = '.cart-list-placeholder-loading';
+    const LOADER_SELECTOR = '.comet-v2-loading-wrap, .cart-list-placeholder-loading';
     const SELECT_ALL_SELECTOR = '.cart-header-checkbox-wrap label.comet-v2-checkbox';
-    const WAIT_TIMEOUT_MS = 2000;
     const SPLIT_DATA_KEY = 'aliExpressCartSplits';
     const UI_CONTAINER_ID = 'cart-split-applier-ui';
 
-    // --- Helper Functions ---
-
-    function normalizeSku(sku) {
-        if (!sku) return '';
-        return sku.toLowerCase().replace(/[\s,/-]/g, '');
+    function setReactInputValue(element, value) {
+        const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+        nativeInputValueSetter.call(element, value);
+        const inputEvent = new Event('input', { bubbles: true });
+        element.dispatchEvent(inputEvent);
+        const blurEvent = new Event('blur', { bubbles: true });
+        element.dispatchEvent(blurEvent);
     }
 
-    function waitForLoadingToFinish(customTimeout = WAIT_TIMEOUT_MS) {
+    function waitForLoadingToFinish(customTimeout = 3000) {
         return new Promise((resolve) => {
             const timeout = setTimeout(() => {
                 observer.disconnect();
-                resolve(); // Assume loading finished after timeout
+                console.warn(`waitForLoadingToFinish timed out after ${customTimeout}ms. Continuing anyway.`);
+                resolve();
             }, customTimeout);
 
             const observer = new MutationObserver(() => {
-                if (!document.querySelector(LOADER_SELECTOR) && !document.querySelector(LOADER_SELECTOR_2)) {
+                if (!document.querySelector(LOADER_SELECTOR)) {
                     clearTimeout(timeout);
                     observer.disconnect();
-                    setTimeout(resolve, 50); // Small buffer for UI to settle
+                    setTimeout(resolve, 150);
                 }
             });
 
-            if (!document.querySelector(LOADER_SELECTOR) && !document.querySelector(LOADER_SELECTOR_2)) {
+            if (!document.querySelector(LOADER_SELECTOR)) {
                 clearTimeout(timeout);
-                setTimeout(resolve, 50);
+                setTimeout(resolve, 150);
             } else {
-                setTimeout(() => {
-                    observer.observe(document.body, { childList: true, subtree: true });
-                }, 50);
+                observer.observe(document.body, { childList: true, subtree: true });
             }
         });
     }
 
-    /**
-     * Shows a non-blocking notification message inside the tool's panel.
-     * @param {string} message The message to display.
-     * @param {'success' | 'error'} type The type of notification.
-     * @param {number} duration How long to display the message in ms.
-     */
-    function showNotification(message, type = 'success', duration = 5000) {
+    function showNotification(message, type = 'success', duration = 12000) {
         const notificationArea = document.querySelector(`#${UI_CONTAINER_ID} .split-tool-notification`);
         if (!notificationArea) return;
-
-        notificationArea.innerHTML = message; // Use innerHTML to allow for lists
+        notificationArea.innerHTML = message;
         notificationArea.className = `split-tool-notification ${type}`;
         notificationArea.style.display = 'block';
-
-        setTimeout(() => {
-            notificationArea.style.display = 'none';
-        }, duration);
+        setTimeout(() => { notificationArea.style.display = 'none'; }, duration);
     }
-
-    // --- Core Logic ---
 
     function parseCartPageItems() {
         const items = [];
         document.querySelectorAll('div.cart-product.activity_cart_product').forEach(productEl => {
-            const nameEl = productEl.querySelector('a.cart-product-name-title');
-            const skuEl = productEl.querySelector('div.skuStr');
-            const checkbox = productEl.querySelector('label.comet-v2-checkbox');
-            const quantityInput = productEl.querySelector('.comet-v2-input-number-input');
+            const linkEl = productEl.querySelector('a.cart-product-name-title');
+            const href = linkEl?.href;
+            const itemIdMatch = href ? href.match(/item\/(\d+)\.html/) : null;
+            if (!itemIdMatch) return;
 
-            if (nameEl && checkbox) {
-                const rawName = nameEl.title.trim();
-                const skuText = skuEl ? skuEl.textContent.trim() : "";
-                const normalizedSku = normalizeSku(skuText);
-                const uniqueId = normalizedSku ? `${rawName} (${normalizedSku})` : rawName;
-                items.push({ uniqueId, rawName, normalizedSku, checkbox, quantityInput });
-            }
+            items.push({
+                itemId: itemIdMatch[1],
+                checkbox: productEl.querySelector('label.comet-v2-checkbox'),
+                quantityInput: productEl.querySelector('.comet-v2-input-number-input'),
+            });
         });
         return items;
     }
@@ -456,19 +440,19 @@
         }
     }
 
-    const observer = new MutationObserver(() => {
-        if (document.querySelector('.cart-summary') && !document.getElementById(UI_CONTAINER_ID)) {
-            init();
+    const observer = new MutationObserver((mutations) => {
+        for(const mutation of mutations) {
+            if (mutation.addedNodes.length) {
+                if (document.querySelector('.cart-summary') && !document.getElementById(UI_CONTAINER_ID)) {
+                    init();
+                    break;
+                }
+            }
         }
     });
 
-    if (document.readyState === 'complete') {
+    window.addEventListener('load', () => {
         init();
         observer.observe(document.body, { childList: true, subtree: true });
-    } else {
-        window.addEventListener('load', () => {
-            init();
-            observer.observe(document.body, { childList: true, subtree: true });
-        });
-    }
+    });
 })();
