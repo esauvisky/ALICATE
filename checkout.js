@@ -124,7 +124,15 @@
     function checkCurrency() {
         if (!checkoutApiData) return { isUSD: false, currency: 'unknown' };
 
-        // Look for any product with currency information
+        // Look for checkout_order_total block with currency information
+        for (const [key, block] of Object.entries(checkoutApiData)) {
+            if (block?.type === 'checkout_order_total' && block.fields?.preOrderTotal?.currencyCode) {
+                const currency = block.fields.preOrderTotal.currencyCode;
+                return { isUSD: currency === 'USD', currency };
+            }
+        }
+        
+        // Fallback: Look for any product with currency information
         for (const [key, block] of Object.entries(checkoutApiData)) {
             if (block?.type === 'pc_checkout_product' && block.fields?.prices?.children?.retailPrice?.currency) {
                 const currency = block.fields.prices.children.retailPrice.currency;
