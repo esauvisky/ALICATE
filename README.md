@@ -4,7 +4,7 @@
 
 *Porque dividir o carrinho do Aliexpress é melhor que dividir seu salário com o governo.*
 
-> https://github.com/user-attachments/assets/c5e3d389-e885-4a3e-bd9b-ebc5ecf3332e
+> https://github.com/user-attachments/assets/c32e8efa-902f-4c5e-8832-6e31f6d87dc4
 >
 > _No vídeo: uma compra de $155 (9 produtos) teria $120 de impostos (total $275). Com o ALICATE, os impostos caíram para $78, uma economia de ~40%._
 
