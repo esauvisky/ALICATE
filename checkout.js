@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALICATE - Otimizador de Checkout
 // @namespace    http://tampermonkey.net/
-// @version      2025-11-08-checkout-rev36
+// @version      2025-11-08-checkout-rev37
 // @description  Analisa sua página de checkout do AliExpress para sugerir divisões de pedido inteligentes que minimizam impostos, usando as regras do Remessa Conforme.
 // @author       @esauvisky
 // @run-at       document-start
@@ -126,7 +126,7 @@
 
         // Look for checkout_order_total block with currency information
         for (const [key, block] of Object.entries(checkoutApiData)) {
-            if (block?.type === 'checkout_order_total' && block.fields?.preOrderTotal?.currencyCode) {
+            if (block?.compName === 'checkout_order_total' && block.fields?.preOrderTotal?.currencyCode) {
                 const currency = block.fields.preOrderTotal.currencyCode;
                 return { isUSD: currency === 'USD', currency };
             }
@@ -134,7 +134,7 @@
         
         // Fallback: Look for any product with currency information
         for (const [key, block] of Object.entries(checkoutApiData)) {
-            if (block?.type === 'pc_checkout_product' && block.fields?.prices?.children?.retailPrice?.currency) {
+            if (block?.compName === 'pc_checkout_product' && block.fields?.prices?.children?.retailPrice?.currency) {
                 const currency = block.fields.prices.children.retailPrice.currency;
                 return { isUSD: currency === 'USD', currency };
             }
@@ -149,7 +149,7 @@
 
         const signatureToSeller = new Map();
         Object.values(checkoutApiData)
-            .filter(block => block?.type === 'checkout_shop_title' && block.fields?.signatures)
+            .filter(block => block?.compName === 'checkout_shop_title' && block.fields?.signatures)
             .forEach(block => {
                 const sellerName = block.fields.title || 'Vendedor Desconhecido';
                 block.fields.signatures.forEach(sig => signatureToSeller.set(sig, sellerName));
@@ -179,9 +179,9 @@
         };
 
         Object.values(checkoutApiData)
-            .filter(block => block?.type === 'pc_checkout_product' || (block?.type === 'pc_checkout_group_product' && block.fields?.intentionOrderList))
+            .filter(block => block?.compName === 'pc_checkout_product' || (block?.compName === 'pc_checkout_group_product' && block.fields?.intentionOrderList))
             .forEach(block => {
-                if (block.type === 'pc_checkout_product') {
+                if (block.compName === 'pc_checkout_product') {
                     const p = block.fields;
                     const sellerName = signatureToSeller.get(p.signature) || 'Itens não atribuídos';
                     const shippingBlock = checkoutApiData[`pc_checkout_shipping_option_${p.signature}`];
