@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         ALICATE - Otimizador de Checkout
 // @namespace    http://tampermonkey.net/
-// @version      2025-11-08-checkout-rev37
+// @version      2025-11-08-checkout-rev39
 // @description  Analisa sua página de checkout do AliExpress para sugerir divisões de pedido inteligentes que minimizam impostos, usando as regras do Remessa Conforme.
 // @author       @esauvisky
 // @run-at       document-start
@@ -39,6 +39,39 @@
             console.warn('[AE Optimizer] Estrutura da API inesperada:', apiResponse);
         }
     }
+
+    // --- Fallback: lê os dados do estado React quando a interceptação perde a corrida ---
+    function extractDataFromReact() {
+        const el = document.querySelector('.pl-product-right-top-title');
+        if (!el) return null;
+        const fiberKey = Object.keys(el).find(k => k.startsWith('__reactInternalInstance') || k.startsWith('__reactFiber'));
+        if (!fiberKey) return null;
+        const seen = new WeakSet();
+        const skip = new Set(['return', '_owner', 'stateNode', 'child', 'sibling', 'alternate', 'nextEffect', 'firstEffect', 'lastEffect']);
+        let found = null;
+        const scan = (o, depth) => {
+            if (!o || typeof o !== 'object' || seen.has(o) || depth > 8 || found) return;
+            seen.add(o);
+            const keys = Object.keys(o);
+            if (keys.some(k => k.startsWith('pc_checkout_product_'))) { found = o; return; }
+            for (const k of keys) if (!skip.has(k)) scan(o[k], depth + 1);
+        };
+        for (let f = el[fiberKey], i = 0; f && !found && i < 300; f = f.return, i++) {
+            scan(f.memoizedProps, 0);
+            scan(f.memoizedState, 0);
+        }
+        return found;
+    }
+    let fallbackAttempts = 0;
+    const fallbackTimer = setInterval(() => {
+        if (checkoutApiData || ++fallbackAttempts > 30) { clearInterval(fallbackTimer); return; }
+        const data = extractDataFromReact();
+        if (data) {
+            clearInterval(fallbackTimer);
+            console.log('%c[REACT FALLBACK] dados lidos do estado da página', 'background:#6f42c1;color:#fff;padding:2px 5px;border-radius:3px;');
+            processCheckoutData({ data: { data } });
+        }
+    }, 500);
 
     // --- Interceptação ---
     const originalXHRopen = XMLHttpRequest.prototype.open;
@@ -171,7 +204,7 @@
 
             if (!sellerItems.has(uniqueId)) {
                 sellerItems.set(uniqueId, {
-                    displayName, originalSkuText: skuText, itemUrl: p?.itemUrl || '',
+                    displayName, originalSkuText: skuText, itemUrl: p?.itemDetailUrl || '',
                     unitPrice: effectiveUnitPrice, quantity: 0, uniqueId
                 });
             }
@@ -180,22 +213,14 @@
 
         Object.values(checkoutApiData)
             .filter(block => block?.compName === 'pc_checkout_product' || (block?.compName === 'pc_checkout_group_product' && block.fields?.intentionOrderList))
-            .forEach(block => {
-                if (block.compName === 'pc_checkout_product') {
-                    const p = block.fields;
-                    const sellerName = signatureToSeller.get(p.signature) || 'Itens não atribuídos';
-                    const shippingBlock = checkoutApiData[`pc_checkout_shipping_option_${p.signature}`];
-                    let shippingCost = shippingBlock ? parseCurrency(String(shippingBlock.fields?.selectedFreightService?.freightCost || 'Free')) : 0;
-                    processItem(p, sellerName, isNaN(shippingCost) ? 0 : shippingCost);
-                } else { // Produtos agrupados
-                    const groupIdentifier = block.id.replace(/^pc_checkout_group_product_/, '');
-                    const shipKey = Object.keys(checkoutApiData).find(k => k.endsWith(groupIdentifier));
-                    let shippingCost = shipKey ? parseCurrency(String(checkoutApiData[shipKey]?.fields?.selectedFreightService?.freightCost || 'Free')) : 0;
-                    block.fields.intentionOrderList.forEach(p => {
-                        const sellerName = signatureToSeller.get(p.signature) || 'Itens não atribuídos';
-                        processItem(p, sellerName, isNaN(shippingCost) ? 0 : shippingCost);
-                    });
-                }
+            .flatMap(block => block.compName === 'pc_checkout_product'
+                ? [{ p: block.fields, groupName: null }]
+                : block.fields.intentionOrderList.map(p => ({ p, groupName: (block.fields.viewGroupDetail?.detailsTitle || '').replace(/\(\d+\)$/, '').trim() })))
+            .forEach(({ p, groupName }) => {
+                const sellerName = signatureToSeller.get(p.signature) || groupName || 'Itens não atribuídos';
+                const shippingBlock = checkoutApiData[`pc_checkout_shipping_option_${p.signature}`];
+                let shippingCost = shippingBlock ? parseCurrency(String(shippingBlock.fields?.selectedFreightService?.freightCost || 'Free')) : 0;
+                processItem(p, sellerName, isNaN(shippingCost) ? 0 : shippingCost);
             });
 
         for (const [sellerName, itemsMap] of groupedBySeller.entries()) {
